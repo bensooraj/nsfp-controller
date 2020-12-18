@@ -32,8 +32,8 @@ func NewNSFPController(k8sClientset *kubernetes.Clientset, podInformer informers
 
 	// Configure event handlers for pod events
 	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) { nsfpController.OnAdd(obj) },
-		// UpdateFunc: func(oldObj, newObj interface{}),
+		AddFunc:    func(obj interface{}) { nsfpController.OnAdd(obj) },
+		UpdateFunc: func(oldObj, newObj interface{}) { nsfpController.OnUdpate(oldObj, newObj) },
 		// DeleteFunc: func(obj interface{}),
 	})
 
@@ -65,4 +65,17 @@ func (nsfpc *NSFPController) OnAdd(obj interface{}) {
 	}
 
 	log.Printf("[ADD] %v | %s in the namepace %s\n", key, pod.Name, pod.Namespace)
+}
+
+// OnUdpate handles pod updation events
+func (nsfpc *NSFPController) OnUdpate(oldObj, newObj interface{}) {
+	pod := oldObj.(*coreV1.Pod)
+
+	key, err := cache.MetaNamespaceKeyFunc(oldObj)
+	if err != nil {
+		log.Printf("[UPDATE ERROR] Error getting key for %#v: %v\n", oldObj, err)
+		runtime.HandleError(err)
+	}
+
+	log.Printf("[UPDATE] %v | %s in the namepace %s\n", key, pod.Name, pod.Namespace)
 }
