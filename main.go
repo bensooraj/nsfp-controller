@@ -57,7 +57,13 @@ func main() {
 
 	// Informer
 	sharedInformers := informers.NewSharedInformerFactory(k8sClientset, 30*time.Second)
+	nsfpController := NewNSFPController(k8sClientset, sharedInformers.Core().V1().Pods())
+
+	stopChannel := make(chan struct{}, 0)
+	defer close(stopChannel)
 
 	sharedInformers.Start(wait.NeverStop)
-	sharedInformers.WaitForCacheSync(wait.NeverStop)
+	// sharedInformers.WaitForCacheSync(wait.NeverStop)
+	nsfpController.Run(stopChannel)
+
 }
