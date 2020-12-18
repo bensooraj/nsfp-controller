@@ -3,11 +3,14 @@ package main
 import (
 	"log"
 
+	"k8s.io/apimachinery/pkg/util/runtime"
 	informersCoreV1 "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	typedCoreV1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	listerCoreV1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
+
+	coreV1 "k8s.io/api/core/v1"
 )
 
 // NSFPController is an implementation of the Not Safe For Production dummy
@@ -29,7 +32,7 @@ func NewNSFPController(k8sClientset *kubernetes.Clientset, podInformer informers
 
 	// Configure event handlers for pod events
 	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		// AddFunc: func(obj interface{}),
+		AddFunc: func(obj interface{}) { nsfpController.OnAdd(obj) },
 		// UpdateFunc: func(oldObj, newObj interface{}),
 		// DeleteFunc: func(obj interface{}),
 	})
@@ -49,4 +52,17 @@ func (nsfpc *NSFPController) Run(stopChannel <-chan struct{}) {
 	log.Println("Waiting for stop signal.")
 	<-stopChannel
 	log.Println("Received stop signal.")
+}
+
+// OnAdd handles pod addition events
+func (nsfpc *NSFPController) OnAdd(obj interface{}) {
+	pod := obj.(*coreV1.Pod)
+
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		log.Printf("[ADD ERROR] Error getting key for %#v: %v\n", obj, err)
+		runtime.HandleError(err)
+	}
+
+	log.Printf("[ADD] %v | %s in the namepace %s\n", key, pod.Name, pod.Namespace)
 }
