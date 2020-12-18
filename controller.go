@@ -34,7 +34,7 @@ func NewNSFPController(k8sClientset *kubernetes.Clientset, podInformer informers
 	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { nsfpController.OnAdd(obj) },
 		UpdateFunc: func(oldObj, newObj interface{}) { nsfpController.OnUdpate(oldObj, newObj) },
-		// DeleteFunc: func(obj interface{}),
+		DeleteFunc: func(obj interface{}) { nsfpController.OnDelete(obj) },
 	})
 
 	return nsfpController
@@ -78,4 +78,17 @@ func (nsfpc *NSFPController) OnUdpate(oldObj, newObj interface{}) {
 	}
 
 	log.Printf("[UPDATE] %v | %s in the namepace %s\n", key, pod.Name, pod.Namespace)
+}
+
+// OnDelete handles pod deletion events
+func (nsfpc *NSFPController) OnDelete(obj interface{}) {
+	pod := obj.(*coreV1.Pod)
+
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		log.Printf("[DELETE ERROR] Error getting key for %#v: %v\n", obj, err)
+		runtime.HandleError(err)
+	}
+
+	log.Printf("[DELETE] %v | %s in the namepace %s\n", key, pod.Name, pod.Namespace)
 }
