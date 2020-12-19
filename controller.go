@@ -16,22 +16,22 @@ import (
 // NSFPController is an implementation of the Not Safe For Production dummy
 // kubernetes controller that I am going to build for the sake of practise!
 type NSFPController struct {
-	PodGetter         typedCoreV1.PodsGetter
-	PodLister         listerCoreV1.PodLister
-	PodInformerSynced cache.InformerSynced
+	SecretGetter         typedCoreV1.SecretsGetter
+	SecretLister         listerCoreV1.SecretLister
+	SecretInformerSynced cache.InformerSynced
 }
 
 // NewNSFPController returns a new instance of the controller we are building!
-func NewNSFPController(k8sClientset *kubernetes.Clientset, podInformer informersCoreV1.PodInformer) *NSFPController {
+func NewNSFPController(k8sClientset *kubernetes.Clientset, secretInformer informersCoreV1.SecretInformer) *NSFPController {
 
 	nsfpController := &NSFPController{
-		PodGetter:         k8sClientset.CoreV1(),
-		PodLister:         podInformer.Lister(),
-		PodInformerSynced: podInformer.Informer().HasSynced,
+		SecretGetter:         k8sClientset.CoreV1(),
+		SecretLister:         secretInformer.Lister(),
+		SecretInformerSynced: secretInformer.Informer().HasSynced,
 	}
 
-	// Configure event handlers for pod events
-	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	// Configure event handlers for secret events
+	secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { nsfpController.OnAdd(obj) },
 		UpdateFunc: func(oldObj, newObj interface{}) { nsfpController.OnUdpate(oldObj, newObj) },
 		DeleteFunc: func(obj interface{}) { nsfpController.OnDelete(obj) },
@@ -42,7 +42,7 @@ func NewNSFPController(k8sClientset *kubernetes.Clientset, podInformer informers
 
 // Run starts the controller!
 func (nsfpc *NSFPController) Run(stopChannel <-chan struct{}) {
-	if !cache.WaitForCacheSync(stopChannel, nsfpc.PodInformerSynced) {
+	if !cache.WaitForCacheSync(stopChannel, nsfpc.SecretInformerSynced) {
 		log.Println("Timeout while waiting for cache to populate!")
 		return
 	}
@@ -54,9 +54,9 @@ func (nsfpc *NSFPController) Run(stopChannel <-chan struct{}) {
 	log.Println("Received stop signal.")
 }
 
-// OnAdd handles pod addition events
+// OnAdd handles secret addition events
 func (nsfpc *NSFPController) OnAdd(obj interface{}) {
-	pod := obj.(*coreV1.Pod)
+	secret := obj.(*coreV1.Secret)
 
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
@@ -64,12 +64,12 @@ func (nsfpc *NSFPController) OnAdd(obj interface{}) {
 		runtime.HandleError(err)
 	}
 
-	log.Printf("[ADD] %v | %s in the namepace %s\n", key, pod.Name, pod.Namespace)
+	log.Printf("[ADD] %v | %s in the namepace %s\n", key, secret.Name, secret.Namespace)
 }
 
-// OnUdpate handles pod updation events
+// OnUdpate handles secret updation events
 func (nsfpc *NSFPController) OnUdpate(oldObj, newObj interface{}) {
-	pod := oldObj.(*coreV1.Pod)
+	secret := oldObj.(*coreV1.Secret)
 
 	key, err := cache.MetaNamespaceKeyFunc(oldObj)
 	if err != nil {
@@ -77,12 +77,12 @@ func (nsfpc *NSFPController) OnUdpate(oldObj, newObj interface{}) {
 		runtime.HandleError(err)
 	}
 
-	log.Printf("[UPDATE] %v | %s in the namepace %s\n", key, pod.Name, pod.Namespace)
+	log.Printf("[UPDATE] %v | %s in the namepace %s\n", key, secret.Name, secret.Namespace)
 }
 
-// OnDelete handles pod deletion events
+// OnDelete handles secret deletion events
 func (nsfpc *NSFPController) OnDelete(obj interface{}) {
-	pod := obj.(*coreV1.Pod)
+	secret := obj.(*coreV1.Secret)
 
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
@@ -90,5 +90,5 @@ func (nsfpc *NSFPController) OnDelete(obj interface{}) {
 		runtime.HandleError(err)
 	}
 
-	log.Printf("[DELETE] %v | %s in the namepace %s\n", key, pod.Name, pod.Namespace)
+	log.Printf("[DELETE] %v | %s in the namepace %s\n", key, secret.Name, secret.Namespace)
 }
