@@ -160,5 +160,15 @@ func (nsfpc *NSFPController) HandleSecretChange(obj interface{}) {
 		}
 
 		log.Printf("Copy the secret %s over to the namespace %s\n", secret.ObjectMeta.Name, ns.ObjectMeta.Name)
+
+		nsfpc.copySecretToNamespace(secret, nsName)
 	}
+}
+
+func (nsfpc *NSFPController) copySecretToNamespace(secret *coreV1.Secret, nsName string) {
+	// TODO:
+	// 1. Make a deep copy of the secret
+	// 2. Remove things like object versions that will prevent us from writing
+	// 3. Write in the new namespace
+	// 4. Create/Update for the new object
 }
