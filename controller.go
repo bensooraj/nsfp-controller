@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	informersCoreV1 "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -15,10 +16,17 @@ import (
 
 const (
 	// SecretSyncType is the type of secrets we are watching...
-	SecretSyncType = "bensooraj.com/secretSync"
+	SecretSyncType = "bensooraj.com/secretsync"
 	// SecretSyncSourceNamespace is the namespace we are watching
-	SecretSyncSourceNamespace = "secretSync"
+	SecretSyncSourceNamespace = "secretsync"
 )
+
+var namepaceBlacklist = map[string]bool{
+	"kube-node-lease":    true,
+	"kube-public":        true,
+	"kube-system":        true,
+	"local-path-storage": true,
+}
 
 // NSFPController is an implementation of the Not Safe For Production dummy
 // kubernetes controller that I am going to build for the sake of practise!
@@ -134,5 +142,23 @@ func (nsfpc *NSFPController) HandleSecretChange(obj interface{}) {
 	if secret.Type != SecretSyncType {
 		log.Printf("Skipping secret %s of the wrong type %s\n", secret.Name, secret.Type)
 		return
+	}
+
+	// List the namespaces
+	nss, err := nsfpc.NamespaceLister.List(labels.Everything())
+	if err != nil {
+		log.Printf("Error listing namespaces: %v", err)
+		return
+	}
+
+	for _, ns := range nss {
+		nsName := ns.ObjectMeta.Name
+
+		if _, ok := namepaceBlacklist[nsName]; ok {
+			log.Printf("Skipping the namespace %s\n", nsName)
+			continue
+		}
+
+		log.Printf("Copy the secret %s over to the namespace %s\n", secret.ObjectMeta.Name, ns.ObjectMeta.Name)
 	}
 }
