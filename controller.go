@@ -118,7 +118,7 @@ func (nsfpc *NSFPController) OnUdpate(oldObj, newObj interface{}) {
 	}
 	log.Printf("[UPDATE] %v | %s in the namepace %s\n", key, secret.Name, secret.Namespace)
 
-	nsfpc.HandleSecretChange(newObj)
+	// nsfpc.HandleSecretChange(newObj)
 }
 
 // OnDelete handles secret deletion events
@@ -136,43 +136,43 @@ func (nsfpc *NSFPController) OnDelete(obj interface{}) {
 }
 
 // HandleSecretChange handles changes to a secret of the type and in the namespace we are watching
-func (nsfpc *NSFPController) HandleSecretChange(obj interface{}) {
-	secret, ok := obj.(*coreV1.Secret)
-	if !ok {
-		// TODO::DeletedFinalStateUnknown
-		return
-	}
+// func (nsfpc *NSFPController) HandleSecretChange(obj interface{}) {
+// 	secret, ok := obj.(*coreV1.Secret)
+// 	if !ok {
+// 		// TODO::DeletedFinalStateUnknown
+// 		return
+// 	}
 
-	if secret.ObjectMeta.Namespace != SecretSyncSourceNamespace {
-		log.Printf("Skipping secret %s in the wrong namespace %s\n", secret.Name, secret.ObjectMeta.Namespace)
-		return
-	}
+// 	if secret.ObjectMeta.Namespace != SecretSyncSourceNamespace {
+// 		log.Printf("Skipping secret %s in the wrong namespace %s\n", secret.Name, secret.ObjectMeta.Namespace)
+// 		return
+// 	}
 
-	if secret.Type != SecretSyncType {
-		log.Printf("Skipping secret %s of the wrong type %s\n", secret.Name, secret.Type)
-		return
-	}
+// 	if secret.Type != SecretSyncType {
+// 		log.Printf("Skipping secret %s of the wrong type %s\n", secret.Name, secret.Type)
+// 		return
+// 	}
 
-	// List the namespaces
-	nss, err := nsfpc.NamespaceLister.List(labels.Everything())
-	if err != nil {
-		log.Printf("Error listing namespaces: %v", err)
-		return
-	}
+// 	// List the namespaces
+// 	nss, err := nsfpc.NamespaceLister.List(labels.Everything())
+// 	if err != nil {
+// 		log.Printf("Error listing namespaces: %v", err)
+// 		return
+// 	}
 
-	for _, ns := range nss {
-		nsName := ns.ObjectMeta.Name
+// 	for _, ns := range nss {
+// 		nsName := ns.ObjectMeta.Name
 
-		if _, ok := namepaceBlacklist[nsName]; ok {
-			log.Printf("Skipping the namespace %s\n", nsName)
-			continue
-		}
+// 		if _, ok := namepaceBlacklist[nsName]; ok {
+// 			log.Printf("Skipping the namespace %s\n", nsName)
+// 			continue
+// 		}
 
-		log.Printf("Copy the secret %s over to the namespace %s\n", secret.ObjectMeta.Name, ns.ObjectMeta.Name)
+// 		log.Printf("Copy the secret %s over to the namespace %s\n", secret.ObjectMeta.Name, ns.ObjectMeta.Name)
 
-		// nsfpc.copySecretToNamespace(secret, nsName)
-	}
-}
+// 		// nsfpc.copySecretToNamespace(secret, nsName)
+// 	}
+// }
 
 func (nsfpc *NSFPController) doSync() {
 	sourceSecrets, err := nsfpc.SecretLister.Secrets(SecretSyncSourceNamespace).List(labels.Everything())
