@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	informersCoreV1 "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	typedCoreV1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -12,20 +14,25 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	coreV1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
 	// SecretSyncType is the type of secrets we are watching...
 	SecretSyncType = "bensooraj.com/secretsync"
+	// SecretSyncAnnotation ...
+	SecretSyncAnnotation = "bensooraj.com/secretsync"
 	// SecretSyncSourceNamespace is the namespace we are watching
 	SecretSyncSourceNamespace = "secretsync"
 )
 
 var namepaceBlacklist = map[string]bool{
-	"kube-node-lease":    true,
-	"kube-public":        true,
-	"kube-system":        true,
-	"local-path-storage": true,
+	"kube-node-lease":         true,
+	"kube-public":             true,
+	"kube-system":             true,
+	"local-path-storage":      true,
+	SecretSyncSourceNamespace: true,
 }
 
 // NSFPController is an implementation of the Not Safe For Production dummy
@@ -78,9 +85,11 @@ func (nsfpc *NSFPController) Run(stopChannel <-chan struct{}) {
 	}
 	log.Println("Caches synced...")
 
+	nsfpc.doSync()
+
 	// Wait until the stop signal is received
 	log.Println("Waiting for stop signal.")
-	<-stopChannel
+	// <-stopChannel
 	log.Println("Received stop signal.")
 }
 
@@ -95,7 +104,7 @@ func (nsfpc *NSFPController) OnAdd(obj interface{}) {
 	}
 	log.Printf("[ADD] %v | %s in the namepace %s\n", key, secret.Name, secret.Namespace)
 
-	nsfpc.HandleSecretChange(obj)
+	// nsfpc.HandleSecretChange(obj)
 }
 
 // OnUdpate handles secret updation events
@@ -109,7 +118,7 @@ func (nsfpc *NSFPController) OnUdpate(oldObj, newObj interface{}) {
 	}
 	log.Printf("[UPDATE] %v | %s in the namepace %s\n", key, secret.Name, secret.Namespace)
 
-	nsfpc.HandleSecretChange(newObj)
+	// nsfpc.HandleSecretChange(newObj)
 }
 
 // OnDelete handles secret deletion events
@@ -123,52 +132,160 @@ func (nsfpc *NSFPController) OnDelete(obj interface{}) {
 	}
 	log.Printf("[DELETE] %v | %s in the namepace %s\n", key, secret.Name, secret.Namespace)
 
-	nsfpc.HandleSecretChange(obj)
+	// nsfpc.HandleSecretChange(obj)
 }
 
 // HandleSecretChange handles changes to a secret of the type and in the namespace we are watching
-func (nsfpc *NSFPController) HandleSecretChange(obj interface{}) {
-	secret, ok := obj.(*coreV1.Secret)
-	if !ok {
-		// TODO::DeletedFinalStateUnknown
-		return
-	}
+// func (nsfpc *NSFPController) HandleSecretChange(obj interface{}) {
+// 	secret, ok := obj.(*coreV1.Secret)
+// 	if !ok {
+// 		// TODO::DeletedFinalStateUnknown
+// 		return
+// 	}
 
-	if secret.ObjectMeta.Namespace != SecretSyncSourceNamespace {
-		log.Printf("Skipping secret %s in the wrong namespace %s\n", secret.Name, secret.ObjectMeta.Namespace)
-		return
-	}
+// 	if secret.ObjectMeta.Namespace != SecretSyncSourceNamespace {
+// 		log.Printf("Skipping secret %s in the wrong namespace %s\n", secret.Name, secret.ObjectMeta.Namespace)
+// 		return
+// 	}
 
-	if secret.Type != SecretSyncType {
-		log.Printf("Skipping secret %s of the wrong type %s\n", secret.Name, secret.Type)
-		return
-	}
+// 	if secret.Type != SecretSyncType {
+// 		log.Printf("Skipping secret %s of the wrong type %s\n", secret.Name, secret.Type)
+// 		return
+// 	}
 
-	// List the namespaces
-	nss, err := nsfpc.NamespaceLister.List(labels.Everything())
+// 	// List the namespaces
+// 	nss, err := nsfpc.NamespaceLister.List(labels.Everything())
+// 	if err != nil {
+// 		log.Printf("Error listing namespaces: %v", err)
+// 		return
+// 	}
+
+// 	for _, ns := range nss {
+// 		nsName := ns.ObjectMeta.Name
+
+// 		if _, ok := namepaceBlacklist[nsName]; ok {
+// 			log.Printf("Skipping the namespace %s\n", nsName)
+// 			continue
+// 		}
+
+// 		log.Printf("Copy the secret %s over to the namespace %s\n", secret.ObjectMeta.Name, ns.ObjectMeta.Name)
+
+// 		// nsfpc.copySecretToNamespace(secret, nsName)
+// 	}
+// }
+
+func (nsfpc *NSFPController) doSync() {
+	sourceSecrets, err := nsfpc.SecretLister.Secrets(SecretSyncSourceNamespace).List(labels.Everything())
 	if err != nil {
-		log.Printf("Error listing namespaces: %v", err)
-		return
+		log.Panicf("Listing secrets... Oh noes!: %v\n", err)
+		runtime.HandleError(err)
 	}
 
-	for _, ns := range nss {
-		nsName := ns.ObjectMeta.Name
+	var filteredSecrets []*coreV1.Secret
 
-		if _, ok := namepaceBlacklist[nsName]; ok {
-			log.Printf("Skipping the namespace %s\n", nsName)
-			continue
+	for _, secret := range sourceSecrets {
+		if annotation, found := secret.Annotations["bensooraj.com/secretsync"]; found && annotation == "true" {
+			log.Printf("RELEVANT\n")
+			log.Printf("Syncing secret %s/%s\n", secret.Namespace, secret.Name)
+
+			filteredSecrets = append(filteredSecrets, secret)
 		}
+	}
+	log.Printf("filteredSecrets: %+v\n", filteredSecrets)
 
-		log.Printf("Copy the secret %s over to the namespace %s\n", secret.ObjectMeta.Name, ns.ObjectMeta.Name)
+	rawNamepaces, err := nsfpc.NamespaceLister.List(labels.Everything())
+	if err != nil {
+		log.Panicf("Listing namespaces... Oh noes!: %v\n", err)
+		runtime.HandleError(err)
+	}
 
-		nsfpc.copySecretToNamespace(secret, nsName)
+	var destinationNamepaces []*coreV1.Namespace
+	for _, ns := range rawNamepaces {
+		if annotation, found := ns.Annotations["bensooraj.com/secretsync"]; found && annotation == "true" {
+			destinationNamepaces = append(destinationNamepaces, ns)
+		}
+	}
+
+	for _, ns := range destinationNamepaces {
+		log.Printf("Destination namespace %s\n", ns.Name)
+		nsfpc.syncNamespace(filteredSecrets, ns.Name)
 	}
 }
 
-func (nsfpc *NSFPController) copySecretToNamespace(secret *coreV1.Secret, nsName string) {
+func (nsfpc *NSFPController) getSecretsInNamespace(nsName string) ([]*coreV1.Secret, error) {
+	var secrets []*coreV1.Secret
+
+	allSecrets, err := nsfpc.SecretLister.Secrets(nsName).List(labels.Everything())
+	if err != nil {
+		log.Printf("Listing secrets... Oh noes!: %v\n", err)
+		return secrets, err
+	}
+
+	for _, secret := range allSecrets {
+		if annotation, found := secret.Annotations["bensooraj.com/secretsync"]; found && annotation == "true" {
+			secrets = append(secrets, secret)
+		}
+	}
+
+	return secrets, nil
+}
+
+func (nsfpc *NSFPController) syncNamespace(secrets []*coreV1.Secret, nsName string) {
+	ctx := context.Background()
+
 	// TODO:
-	// 1. Make a deep copy of the secret
-	// 2. Remove things like object versions that will prevent us from writing
-	// 3. Write in the new namespace
-	// 4. Create/Update for the new object
+	// 2. Delete secrets that have the annotation but are not in the filtered list of secrets
+
+	// 1. Create/Update all of the secrets in this namespace
+	for _, secret := range secrets {
+		newSecret := secret.DeepCopy()
+
+		newSecret.Namespace = nsName
+		newSecret.ResourceVersion = "" // resourceVersion should not be set on objects to be created
+		newSecret.UID = "" // Precondition failed: UID in precondition
+		log.Printf("New secret copied over: %v\n", newSecret)
+
+		// Create
+		_, err := nsfpc.SecretGetter.Secrets(nsName).Create(ctx, newSecret, metav1.CreateOptions{})
+		if err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				log.Printf("ALREADY EXISTS: %+v\n", err)
+				// Update if the secret already exists
+				_, updateErr := nsfpc.SecretGetter.Secrets(nsName).Update(ctx, newSecret, metav1.UpdateOptions{})
+				if updateErr != nil {
+					log.Printf("Error updating %s/%s: %+v\n", newSecret.Namespace, newSecret.Name, updateErr)
+				}
+			} else {
+				log.Printf("Error creating the new secret: %+v\n", err)
+			}
+		}
+	}
+
+	// 2. Delete secrets that have the annotation but are not in the filtered list of secrets
+	sourceSecrets := sets.String{}
+	targetSecrets := sets.String{}
+
+	for _, secret := range secrets {
+		sourceSecrets.Insert(secret.Name)
+	}
+	log.Println("sourceSecrets: ", sourceSecrets)
+
+	targetSecretList, err := nsfpc.getSecretsInNamespace(nsName)
+	if err != nil {
+		log.Printf("Error listing target secrets for deletion: %+v\n", err)
+	}
+	for _, secret := range targetSecretList {
+		targetSecrets.Insert(secret.Name)
+	}
+	log.Println("targetSecrets: ", targetSecrets)
+
+	deleteSecretSet := targetSecrets.Difference(sourceSecrets)
+	for _, secretName := range deleteSecretSet.UnsortedList() {
+		log.Printf("Delete secret %s/%s\n", nsName, secretName)
+		deleteErr := nsfpc.SecretGetter.Secrets(nsName).Delete(ctx, secretName, metav1.DeleteOptions{})
+		if deleteErr != nil {
+			log.Printf("Error deleteing secret %s/%s: %+v\n", nsName, secretName, deleteErr)
+		}
+	}
+
 }
